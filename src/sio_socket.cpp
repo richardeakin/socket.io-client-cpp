@@ -1,8 +1,7 @@
 #include "sio_socket.h"
 #include "internal/sio_packet.h"
 #include "internal/sio_client_impl.h"
-#include <boost/asio/deadline_timer.hpp>
-#include <boost/system/error_code.hpp>
+#include "asio/steady_timer.hpp"
 #include <queue>
 #include <cstdarg>
 
@@ -157,7 +156,7 @@ namespace sio
         
         void ack(int msgId,string const& name,message::list const& ack_message);
         
-        void timeout_connection(const boost::system::error_code &ec);
+        void timeout_connection(const asio::error_code &ec);
         
         void send_connect();
         
@@ -178,7 +177,7 @@ namespace sio
         
         error_listener m_error_listener;
         
-        std::unique_ptr<boost::asio::deadline_timer> m_connection_timer;
+        std::unique_ptr<asio::steady_timer> m_connection_timer;
         
         std::queue<packet> m_packet_queue;
         
@@ -273,9 +272,9 @@ namespace sio
         }
         packet p(packet::type_connect,m_nsp);
         m_client->send(p);
-        m_connection_timer.reset(new boost::asio::deadline_timer(m_client->get_io_service()));
-        boost::system::error_code ec;
-        m_connection_timer->expires_from_now(boost::posix_time::milliseconds(20000), ec);
+        m_connection_timer.reset(new asio::steady_timer(m_client->get_io_service()));
+        asio::error_code ec;
+        m_connection_timer->expires_from_now(std::chrono::milliseconds(20000), ec);
         m_connection_timer->async_wait(std::bind(&socket::impl::timeout_connection,this, std::placeholders::_1));
     }
     
@@ -289,10 +288,10 @@ namespace sio
             
             if(!m_connection_timer)
             {
-                m_connection_timer.reset(new boost::asio::deadline_timer(m_client->get_io_service()));
+                m_connection_timer.reset(new asio::steady_timer(m_client->get_io_service()));
             }
-            boost::system::error_code ec;
-            m_connection_timer->expires_from_now(boost::posix_time::milliseconds(3000), ec);
+            asio::error_code ec;
+            m_connection_timer->expires_from_now(std::chrono::milliseconds(3000), ec);
             m_connection_timer->async_wait(lib::bind(&socket::impl::on_close, this));
         }
     }
@@ -475,7 +474,7 @@ namespace sio
         if(m_error_listener)m_error_listener(err_message);
     }
     
-    void socket::impl::timeout_connection(const boost::system::error_code &ec)
+    void socket::impl::timeout_connection(const asio::error_code &ec)
     {
         NULL_GUARD(m_client);
         if(ec)
