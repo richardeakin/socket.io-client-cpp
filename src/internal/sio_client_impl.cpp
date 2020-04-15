@@ -7,16 +7,14 @@
 //
 
 #include "sio_client_impl.h"
+#include "cinder/Log.h"
 #include <sstream>
-#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp> // TODO: replacve with <chrono>
 #include <mutex>
 #include <cmath>
-// Comment this out to disable handshake logging to stdout
-#if DEBUG || _DEBUG
-#define LOG(x) std::cout << x
-#else
-#define LOG(x)
-#endif
+
+#define LOG_SIO(x)  CI_LOG_I( "|sio|" << x )
+//#define LOG_SIO(x)
 
 using namespace std;
 
@@ -243,7 +241,7 @@ namespace sio
 
     void client_impl::close_impl(close::status::value const& code,string const& reason)
     {
-        LOG("Close by reason:"<<reason << endl);
+        LOG_SIO( "Close by reason:" << reason );
         if(m_reconn_timer)
         {
             m_reconn_timer->cancel();
@@ -251,7 +249,7 @@ namespace sio
         }
         if (m_con.expired())
         {
-            cerr << "Error: No active session" << endl;
+            CI_LOG_E( "Error: No active session" );
         }
         else
         {
@@ -268,7 +266,7 @@ namespace sio
             m_client.send(m_con,*payload_ptr,opcode,ec);
             if(ec)
             {
-                cerr<<"Send failed,reason:"<< ec.message()<<endl;
+                CI_LOG_E( "Send failed,reason:"<< ec.message() );
             }
         }
     }
@@ -277,8 +275,9 @@ namespace sio
     {
         if(ec || m_con.expired())
         {
-            if (ec != asio::error::operation_aborted)
-                LOG("ping exit,con is expired?"<<m_con.expired()<<",ec:"<<ec.message()<<endl){};
+            if (ec != asio::error::operation_aborted) {
+                LOG_SIO("ping exit,con is expired?"<<m_con.expired()<<",ec:"<<ec.message());
+            }
             return;
         }
         packet p(packet::frame_ping);
@@ -308,7 +307,7 @@ namespace sio
         {
             return;
         }
-        LOG("Pong timeout"<<endl);
+        LOG_SIO("Pong timeout");
         m_client.get_io_service().dispatch(lib::bind(&client_impl::close_impl, this,close::status::policy_violation,"Pong timeout"));
     }
 
@@ -323,7 +322,7 @@ namespace sio
             m_con_state = con_opening;
             m_reconn_made++;
             this->reset_states();
-            LOG("Reconnecting..."<<endl);
+            LOG_SIO("Reconnecting...");
             if(m_reconnecting_listener) m_reconnecting_listener();
             m_client.get_io_service().dispatch(lib::bind(&client_impl::connect_impl,this,m_base_url,m_query_string));
         }
@@ -367,10 +366,10 @@ namespace sio
         m_con.reset();
         m_con_state = con_closed;
         this->sockets_invoke_void(&sio::socket::on_disconnect);
-        LOG("Connection failed." << endl);
+        LOG_SIO( "Connection failed." );
         if(m_reconn_made<m_reconn_attempts)
         {
-            LOG("Reconnect for attempt:"<<m_reconn_made<<endl);
+            LOG_SIO( "Reconnect for attempt: " << m_reconn_made );
             unsigned delay = this->next_delay();
             if(m_reconnect_listener) m_reconnect_listener(m_reconn_made,delay);
             m_reconn_timer.reset(new asio::steady_timer(m_client.get_io_service()));
@@ -386,7 +385,7 @@ namespace sio
     
     void client_impl::on_open(connection_hdl con)
     {
-        LOG("Connected." << endl);
+        LOG_SIO("Connected.");
         m_con_state = con_opened;
         m_con = con;
         m_reconn_made = 0;
@@ -397,14 +396,14 @@ namespace sio
     
     void client_impl::on_close(connection_hdl con)
     {
-        LOG("Client Disconnected." << endl);
+        LOG_SIO("Client Disconnected.");
         con_state m_con_state_was = m_con_state;
         m_con_state = con_closed;
         lib::error_code ec;
         close::status::value code = close::status::normal;
         client_type::connection_ptr conn_ptr  = m_client.get_con_from_hdl(con, ec);
         if (ec) {
-            LOG("OnClose get conn failed"<<ec<<endl);
+            LOG_SIO("OnClose get conn failed"<<ec);
         }
         else
         {
@@ -428,7 +427,7 @@ namespace sio
             this->sockets_invoke_void(&sio::socket::on_disconnect);
             if(m_reconn_made<m_reconn_attempts)
             {
-                LOG("Reconnect for attempt:"<<m_reconn_made<<endl);
+                LOG_SIO("Reconnect for attempt:"<<m_reconn_made);
                 unsigned delay = this->next_delay();
                 if(m_reconnect_listener) m_reconnect_listener(m_reconn_made,delay);
                 m_reconn_timer.reset(new asio::steady_timer(m_client.get_io_service()));
@@ -491,10 +490,12 @@ namespace sio
 
             m_ping_timer.reset(new asio::steady_timer(m_client.get_io_service()));
             asio::error_code ec;
-            if(ec)LOG("ec:"<<ec.message()<<endl){};
             m_ping_timer->expires_from_now(chrono::milliseconds(m_ping_interval), ec);
+            if(ec) {
+                LOG_SIO("ec:"<<ec.message());
+            }
             m_ping_timer->async_wait(lib::bind(&client_impl::ping,this,lib::placeholders::_1));
-            LOG("On handshake,sid:"<<m_sid<<",ping interval:"<<m_ping_interval<<",ping timeout"<<m_ping_timeout<<endl);
+            LOG_SIO("On handshake,sid:"<<m_sid<<",ping interval:"<<m_ping_interval<<",ping timeout"<<m_ping_timeout);
             return;
         }
 failed:
@@ -539,13 +540,13 @@ failed:
     
     void client_impl::on_encode(bool isBinary,shared_ptr<const string> const& payload)
     {
-        LOG("encoded payload length:"<<payload->length()<<endl);
+        LOG_SIO("encoded payload length:"<<payload->length());
         m_client.get_io_service().dispatch(lib::bind(&client_impl::send_impl,this,payload,isBinary?frame::opcode::binary:frame::opcode::text));
     }
     
     void client_impl::clear_timers()
     {
-        LOG("clear timers"<<endl);
+        LOG_SIO("clear timers");
         asio::error_code ec;
         if(m_ping_timeout_timer)
         {
@@ -576,7 +577,7 @@ failed:
                              boost::asio::ssl::context::single_dh_use,ec);
         if(ec)
         {
-            cerr<<"Init tls failed,reason:"<< ec.message()<<endl;
+            CI_LOG_E( "Init tls failed,reason:"<< ec.message() );
         }
         
         return ctx;
